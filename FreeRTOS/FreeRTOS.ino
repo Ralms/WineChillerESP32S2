@@ -5,6 +5,7 @@
 #endif
 
 //#include <U8g2lib.h>
+#include <stdio.h>
 #include <Wire.h>
 #include <OneWire.h>
 #include <DallasTemperature.h>
@@ -18,6 +19,10 @@
 //#include <Adafruit_SSD1306.h>
 #include "MainDisplayHandler.h"
 #include "SlaveDisplay.h"
+#include "EEPROMController.h"
+
+//#include "ChannelConfig.h"
+#include "SensorController.h" // Sensor V2
 
 #ifndef LED_BUILTIN
 #define LED_BUILTIN 13
@@ -29,8 +34,8 @@
 #define ENCODER_DT 2
 #define ENCODER_BTN 1
 // ESP32 S2 doesn't have hard mapped I2C pins, can be almost any GPIO
-#define I2C_1_SDA 9 //6
-#define I2C_1_SCL 8 // 7
+#define I2C_1_SDA 8 //6
+#define I2C_1_SCL 9 // 7
 #define I2C_2_SDA 6 // 11
 #define I2C_2_SCL 7 // 12
 // Relays
@@ -43,16 +48,15 @@
 #define RELAY_B_PIN3 36
 #define RELAY_B_PIN4 35
 // Temp Sensors OneWire
-#define ONE_WIRE_BUS_A 33
+#define ONE_WIRE_BUS_A 34
 #define ONE_WIRE_BUS_B 33
 
 //------------<<<< Variables >>>>----------------
 uint8_t RelayPins[8] = {RELAY_A_PIN1,RELAY_A_PIN2,RELAY_A_PIN3,RELAY_A_PIN4,
                         RELAY_B_PIN1,RELAY_B_PIN2,RELAY_B_PIN3,RELAY_B_PIN4};
 
-volatile int Counter = 0;
+volatile TickType_t lastBTNPressTickCount = 0;
 volatile boolean Direction;
-volatile boolean ButtonPressed = false;
 
 // ------- Display --------
 #define OLED_RESET -1
@@ -63,33 +67,34 @@ volatile boolean ButtonPressed = false;
 #define SLAVE_SCREEN_HEIGHT 32 // OLED display height, in pixels
 #define SLAVE_SCREEN_ADDRESS 0x3C
 
-
 TwoWire I2C_PRIMARY = TwoWire(0);
 TwoWire I2C_SECONDARY = TwoWire(1);
-//Adafruit_SH1106G maindisplayScreen(MAIN_SCREEN_WIDTH, MAIN_SCREEN_HEIGHT, &I2C_PRIMARY, OLED_RESET);
 MainDisplayHandler mainDisplay = MainDisplayHandler();
 SlaveDisplay slaveDisplay[3] = {SlaveDisplay(),SlaveDisplay(),SlaveDisplay()};
-//Adafruit_SSD1306 slaveDisplay(SLAVE_SCREEN_WIDTH, SLAVE_SCREEN_HEIGHT, &I2C_SECONDARY, OLED_RESET);
 
 // ------ NAVIGATION CONTROL -----
-static volatile uint8_t CURRENT_PAGE = 0; //uint8_t
+static volatile uint8_t CURRENT_PAGE = 0;
 #define MENU_PAGE_MAX 4
 
-// Page 0 shows sensors 1 to 6. Page 1 shows 7 to 12;
-static volatile uint8_t SLAVE_PAGE = 0; 
+// Bank 0 shows sensors 1 to 6. Bank 1 shows 7 to 12;
+static volatile uint8_t CHANNEL_BANK = 0; 
 
 // ---- DS18B20 Temp Sensors -------o
 
+// Sensor V1
 // Setup a oneWire instance to communicate with any OneWire device
-OneWire oneWireBusA(ONE_WIRE_BUS_A);
+//OneWire oneWireBusA(ONE_WIRE_BUS_A); // DELETE
+//OneWire oneWireBusA(ONE_WIRE_BUS_A);
+
 // Pass oneWire reference to DallasTemperature library
-DallasTemperature sensors(&oneWireBusA);
+//DallasTemperature sensors(&oneWireBusA); // DELETE
+
 #define SENSORS_MAX 12
 #define SENSOR_ERROR -128
 
-const PROGMEM uint8_t SensorWhite[8] = {0x28,0xF6,0x15,0x60,0x38,0x19,0x01,0x1B};
-const PROGMEM uint8_t SensorGrey[8]  = {0x28,0xFE,0xC3,0x2F,0x38,0x19,0x01,0x02};
-const PROGMEM uint8_t SensorBlack[8] = {0x28,0xCD,0x25,0x67,0x38,0x19,0x01,0x0C};
+// const PROGMEM uint8_t SensorWhite[8] = {0x28,0xF6,0x15,0x60,0x38,0x19,0x01,0x1B};
+// const PROGMEM uint8_t SensorGrey[8]  = {0x28,0xFE,0xC3,0x2F,0x38,0x19,0x01,0x02};
+// const PROGMEM uint8_t SensorBlack[8] = {0x28,0xCD,0x25,0x67,0x38,0x19,0x01,0x0C};
 
 // SENSORS ADDRESSES
 uint8_t SENSOR_ADDRESS_KNOWN[4][8] = {
@@ -100,7 +105,32 @@ uint8_t SENSOR_ADDRESS_KNOWN[4][8] = {
 };
 //const PROGMEM uint8_t Sensor3[8] = {0x00,0x0E,0x4C,0x5F,0x52,0x9D,0xC7,0x27}; //4024621965625127 //WHITE, somethign wrong
 
-//const uint8_t* DS18B20[3] = {SensorWhite,SensorGrey,SensorBlack};
+ChannelConfig channelsConfig[12] = {
+  ChannelConfig(0,SENSOR_ADDRESS_KNOWN[0], (float)17, (float)0.5),
+  ChannelConfig(1,SENSOR_ADDRESS_KNOWN[1], (float)17, (float)0.5),
+  ChannelConfig(2,SENSOR_ADDRESS_KNOWN[2], (float)17, (float)0.5),
+  ChannelConfig(3,SENSOR_ADDRESS_KNOWN[3], (float)17, (float)0.5),
+  ChannelConfig(4, 0, 0, 0),
+  ChannelConfig(5, 0, 0, 0),
+  ChannelConfig(6, 0, 0, 0),
+  ChannelConfig(7, 0, 0, 0),
+  ChannelConfig(8, 0, 0, 0),
+  ChannelConfig(9, 0, (float)10, (float)1),
+  ChannelConfig(10, 0, (float)10, (float)1),
+  ChannelConfig(11, 0, (float)10, (float)1)
+};
+
+SensorController _sensorController = SensorController(); // Sensor V2
+OneWire oneWireBusA(ONE_WIRE_BUS_A);
+OneWire oneWireBusB(ONE_WIRE_BUS_B);
+EEPROMController _eepromController = EEPROMController(); // EEPROM settings storage
+
+uint16_t relayMapping[8] = {66,3,1,2,66,66,66,66}; // CHANGE TO DYNAMIC STORAGE
+
+// ----------- GLOBAL RUNTIME Variables ------------
+
+bool _selectedBlink = true;
+
 uint8_t* SENSOR_ADDRESS_ACTIVE[12] = {};
 
 uint8_t deviceCount = 0;
@@ -111,6 +141,7 @@ AvgStd sensorStat[12] = {AvgStd(),AvgStd(),AvgStd(),AvgStd(),
 float sensorLastReading[12] = {-127,-127,-127,-127,-127,-127,
                                -127,-127,-127,-127,-127,-127};
 bool relayState[8] = {false,false,false,false,false,false,false,false};
+int volatile _optionValueChange = 0;
 
 //---- METHODS / TAKS --------
 void IRAM_ATTR ISR_RotaryEncoder();
@@ -130,17 +161,48 @@ void setup() {
   Serial.begin(115200);
   Serial.println("Setup starting...");
 
+  // Begin I2C channels
+  I2C_PRIMARY.begin(I2C_1_SDA, I2C_1_SCL, 400000ul);
+  I2C_SECONDARY.begin(I2C_2_SDA, I2C_2_SCL, 400000ul);
+  
   initRelayOutputs(); //Doing them first to avoid having them floating
   initEncoderInput();
   initDisplays();
+
+  Serial.println("Checking EEPPROM....");
+  if(_eepromController.init(&I2C_PRIMARY)){
+    Serial.println("EEPPROM initializied sucessfully!");
+  }
+  else
+  {
+    Serial.println("EEPPROM failed to initialize!");
+  }
   
-  pinMode(ONE_WIRE_BUS_A, INPUT_PULLUP);
+  
+  // Sensor V2 - reboot issues 
+
+  Serial.println("Init Sensor Controller....");
+  // ONE_WIRE_BUS_A IS CAUSING the ESP32 to crash...maybe a short? 
+  //_sensorController.init(channelsConfig, &oneWireBusA, &oneWireBusB);
+  _sensorController.init(channelsConfig, &oneWireBusA, &oneWireBusB);
+
+  Serial.print("Sensor Count BusA: ");
+  Serial.println(_sensorController.sensorCountPerBus(0));
+  Serial.print("Sensor Count BusB: ");
+  Serial.println(_sensorController.sensorCountPerBus(1));
+
+
+  /*
+  // Sensor V1
+  pinMode(ONE_WIRE_BUS_A, INPUT);
+  //pinMode(ONE_WIRE_BUS_B, INPUT); //INPUT_PULLUP
   sensors.begin(); // Start up the sensors library
   delay(1000);
   sensors.setResolution(12); // Set resolution to 12 bit
   sensors.requestTemperatures();
   delay(200);
   deviceCount = sensors.getDeviceCount();
+
   float tempC = sensors.getTempCByIndex(0);
   String nrSensors = "TempSensors Count: " + String(deviceCount);
   Serial.println(nrSensors);
@@ -148,7 +210,7 @@ void setup() {
 
   // Address stuff 
   uint8_t address[8];
-  if(sensors.getAddress(address, 0)){
+  if(sensors.getAddress(address, 0)){ // sometimes device count doesn't work when OneWire HIGH voltage is low (like 3v, instead of 3.3)
     String addressStr = "";
     int a = 0;
     for(;a<8;++a){
@@ -158,8 +220,6 @@ void setup() {
   }else{
     Serial.println("Failed to get Address for Sensor " + String(0));
   }
-
-  
 
   int s = 0;
   
@@ -182,17 +242,11 @@ void setup() {
       SENSOR_ADDRESS_ACTIVE[i] = SENSOR_ADDRESS_KNOWN[i];
     }
   }
+  // Sensor 1 END
+  */
   
   // Address stuff END 
   
-  /*
-  // write number of sensors on first display
-  mainDisplay.setFont(u8g2_font_lucasfont_alternate_tr ); 
-  mainDisplay.clearBuffer();         // clear the internal memory
-  mainDisplay.drawStr(0,16,nrSensors.c_str());  // write something to the internal memory
-  mainDisplay.sendBuffer();         // transfer internal memory to the display
-*/
-
   Serial.println("Setup finished...");
   
   // ---- Tasks ----
@@ -208,8 +262,8 @@ void setup() {
   //xTaskCreatePinnedToCore(TaskAnalogReadA3, "AnalogReadA3", 1024, NULL, 1, NULL, ARDUINO_RUNNING_CORE);
   xTaskCreatePinnedToCore(TaskUpdateMainDisplay, "UpdateMainDisplay", 4096, NULL, 2, NULL, ARDUINO_RUNNING_CORE);
   xTaskCreatePinnedToCore(TaskUpdateSlaveDisplays, "UpdateSlaveDisplays", 4096, NULL, 2, NULL, ARDUINO_RUNNING_CORE);
-  xTaskCreatePinnedToCore(TaskReadTempSensors, "ReadTempSensors", 1024, NULL, 1, NULL, ARDUINO_RUNNING_CORE);
-  xTaskCreatePinnedToCore(TaskUpdateRelays, "UpdateRelays", 1024, NULL, 1, NULL, ARDUINO_RUNNING_CORE);
+  xTaskCreatePinnedToCore(TaskReadTempSensors, "ReadTempSensors", 32768, NULL, 1, NULL, ARDUINO_RUNNING_CORE);
+  xTaskCreatePinnedToCore(TaskUpdateRelays, "UpdateRelays", 32768, NULL, 1, NULL, ARDUINO_RUNNING_CORE);
   
   // Now the task scheduler, which takes over control of scheduling individual tasks, is automatically started.
 }
@@ -222,102 +276,22 @@ void loop()
 void initDisplays(){
   Serial.println("Init display starting...");
   
-  // Setup Main Screen
-  I2C_PRIMARY.begin(I2C_1_SDA, I2C_1_SCL, 400000ul);
+  // Init Main Display
   mainDisplay.init(&I2C_PRIMARY);
 
-  I2C_SECONDARY.begin(I2C_2_SDA, I2C_2_SCL, 400000ul);
+  // Init Slave Displays
   slaveDisplay[0].init(0, &I2C_SECONDARY);
   slaveDisplay[1].init(1, &I2C_SECONDARY);
   slaveDisplay[2].init(2, &I2C_SECONDARY);
-
-  /*
-  slaveDisplay = Adafruit_SSD1306(SLAVE_SCREEN_WIDTH, SLAVE_SCREEN_HEIGHT, &I2C_SECONDARY, OLED_RESET);
-  slaveDisplay.setRotation(2);
-  switchI2CMuxPort(0);
-  if(!slaveDisplay.begin(SSD1306_SWITCHCAPVCC, SLAVE_SCREEN_ADDRESS)) {
-    Serial.println(F("SSD1306 0 allocation failed"));
-  }
-  slaveDisplay.display();
-  switchI2CMuxPort(1);
-  if(!slaveDisplay.begin(SSD1306_SWITCHCAPVCC, SLAVE_SCREEN_ADDRESS)) {
-    Serial.println(F("SSD1306 1 allocation failed"));
-  }
-  slaveDisplay.display();
-  switchI2CMuxPort(2);
-  if(!slaveDisplay.begin(SSD1306_SWITCHCAPVCC, SLAVE_SCREEN_ADDRESS)) {
-    Serial.println(F("SSD1306 2 allocation failed"));
-  }
-  slaveDisplay.display();
-  
-  delay(1000); //Allow Screens to init
-  
-  //maindisplay.clearDisplay();
-  //maindisplay.drawPixel(10, 10, SH110X_WHITE);
-  //maindisplay.display();
-  switchI2CMuxPort(0);
-  slaveDisplay.clearDisplay();
-  slaveDisplay.drawPixel(10, 10, SSD1306_WHITE);
-  slaveDisplay.display();
-  switchI2CMuxPort(1);
-  slaveDisplay.clearDisplay();
-  slaveDisplay.drawPixel(10, 10, SSD1306_WHITE);
-  slaveDisplay.display();
-  switchI2CMuxPort(2);
-  slaveDisplay.clearDisplay();
-  slaveDisplay.drawPixel(10, 10, SSD1306_WHITE);
-  slaveDisplay.display();
-  delay(1000);
-  */
-  
-  /*
-  maindisplay.clearDisplay();
-  maindisplay.setTextSize(1);
-  maindisplay.setTextColor(SH110X_WHITE);
-  maindisplay.setCursor(0,0);
-  maindisplay.println("Hello, world! Main");
-  maindisplay.display();
-  int i = 0;
-  for(;i<3;++i){
-    switchI2CMuxPort(i); // SLAVE diplay 1 (idx 0)
-    slaveDisplay.clearDisplay();
-    slaveDisplay.setTextSize(1);
-    slaveDisplay.setTextColor(SSD1306_WHITE);
-    slaveDisplay.setCursor(0,0);
-    slaveDisplay.print("Hello, world!");
-    slaveDisplay.println(i);
-    slaveDisplay.display();
-  }
-
-  
-  delay(2000);
-  i = 0;
-  for(;i<3;++i){
-    switchI2CMuxPort(i); // SLAVE diplay 1 (idx 0)
-    slaveDisplay.clearDisplay();
-    slaveDisplay.drawLine(0, 0, SLAVE_SCREEN_WIDTH-1, 0, SH110X_WHITE); // TEMP Horizontal Line
-    slaveDisplay.drawLine(0, 0, 0, SLAVE_SCREEN_HEIGHT - 1, SH110X_WHITE);
-    slaveDisplay.drawLine(42, 0, 42, SLAVE_SCREEN_HEIGHT - 1, SH110X_WHITE);
-    slaveDisplay.drawLine(84, 0, 84, SLAVE_SCREEN_HEIGHT - 1, SH110X_WHITE);
-    slaveDisplay.drawLine(SLAVE_SCREEN_WIDTH-1, 0, SLAVE_SCREEN_WIDTH-1, SLAVE_SCREEN_HEIGHT - 1, SH110X_WHITE);
-    slaveDisplay.drawLine(0, SLAVE_SCREEN_HEIGHT - 1, SLAVE_SCREEN_WIDTH-1, SLAVE_SCREEN_HEIGHT - 1, SH110X_WHITE); // TEMP Horizontal Line
-    slaveDisplay.display();
-  }*/
   
   Serial.println("Init display finshed!");
 }
 
-
 void initEncoderInput(){
   Serial.println("Init Encoder...");
-  pinMode(ENCODER_CLK, INPUT); //INPUT_PULLUP
-  pinMode(ENCODER_DT, INPUT);
+  pinMode(ENCODER_CLK, INPUT); // Pull up done on the encoder already
+  pinMode(ENCODER_DT, INPUT); // Pull up done on the encoder already
   pinMode(ENCODER_BTN, INPUT_PULLUP);
-    
-  // ... and their pull-up resistors activated
-  //digitalWrite(ENCODER_CLK, true);
-  //digitalWrite(ENCODER_DT, true);
-  //digitalWrite(ENCODER_BTN, true);
     
   Serial.println("Init Encoder finished!");
 }
@@ -374,20 +348,34 @@ void TaskReadTempSensors(void *pvParameters)
     //Serial.println("MainDisplayTask called \n");
 
     // Send command to all the sensors for temperature conversion
-    sensors.requestTemperatures();
+    
+    //Serial.println("<MAIN:TaskReadTempSensors> Request Temps");
+    //sensors.requestTemperatures();
+    _sensorController.requestTemperatures(); //  sensor v2
+
     // Display temperature from each sensor
     for (int i = 0;  i < SENSORS_MAX ;  i++)
     {
-      if(SENSOR_ADDRESS_ACTIVE[i]){
+      //if(SENSOR_ADDRESS_ACTIVE[i]){
+        
+        
+        // Sensor V2
+        float tempC = _sensorController.getTempByChannel(i);
+        sensorLastReading[i] = tempC;
+        if(tempC > -50)
+        {
+          sensorStat[i].checkAndAddReading(tempC);
+        }
+        
+        /* // Sensor V1
         float tempC = sensors.getTempC(SENSOR_ADDRESS_ACTIVE[i]);
-        //float tempC = sensors.getTempCByIndex(i);
         if(tempC == DEVICE_DISCONNECTED_C){
           sensorLastReading[i] = SENSOR_ERROR; // Using -128 to 
         }else{
           sensorLastReading[i] = tempC;
           sensorStat[i].checkAndAddReading(tempC);
-        } 
-      }
+        } */
+      //}
       
     }
     vTaskDelay(1000);  // one tick delay (15ms) in between reads for stability
@@ -399,14 +387,14 @@ void TaskUpdateMainDisplay(void *pvParameters)
   (void) pvParameters;
   
   for (;;)
-  { 
-    mainDisplay.setSlavesPage(SLAVE_PAGE);
-    mainDisplay.renderPage(CURRENT_PAGE);
-    
-    if(ButtonPressed){
-      Serial.println("BUTTON PRESS");
-      vTaskDelay(100);
-      ButtonPressed = false;
+  {
+    if(mainDisplay.IN_OPTIONS_MENU){
+      mainDisplay.renderOptionsMenu();
+    }
+    else
+    {
+      mainDisplay.setSlavesPage(CHANNEL_BANK);
+      mainDisplay.renderPage(CURRENT_PAGE);
     }
     vTaskDelay(100);  // one tick delay (15ms) in between reads for stability   
   }
@@ -419,104 +407,50 @@ void TaskUpdateSlaveDisplays(void *pvParameters)
   
   for (;;)
   {
-    if(!SLAVE_PAGE){
-      temps[0] = sensorLastReading[0];
-      temps[1] = getSensorSlaveValue(1);
-      temps[2] = getSensorSlaveValue(2);
-      slaveDisplay[0].renderTemps(temps);
-      temps[0] = getSensorSlaveValue(3);
-      temps[1] = getSensorSlaveValue(4);
-      temps[2] = getSensorSlaveValue(5);
-      slaveDisplay[1].renderTemps(temps);
+    if(mainDisplay.IN_OPTIONS_MENU)
+    { 
+      if(mainDisplay.IN_OPTIONS_PAGE == 1) // Channel config
+      {
+        //slaveDisplay[0].renderText(convertAddress(SENSOR_ADDRESS_ACTIVE[0]), mainDisplay.IN_OPTIONS_SELECTOR == 1); // POSIBLY CAUSING A CRASH
+        slaveDisplay[0].renderText("TENP SENSOR ADDR", mainDisplay.IN_OPTIONS_SELECTOR == 1); // POSIBLY CAUSING A CRASH
+        slaveDisplay[1].renderOption("Target:", 17.2, mainDisplay.IN_OPTIONS_SELECTOR == 2);
+        slaveDisplay[2].renderOption("Tolerance:      +/-", 0.5, mainDisplay.IN_OPTIONS_SELECTOR == 3);
+      }
+      else if(mainDisplay.IN_OPTIONS_PAGE == 2) // Output binding
+      {
+        slaveDisplay[0].renderOption("Output:", mainDisplay.IN_OPTIONS_SELECTOR, mainDisplay.IN_OPTIONS_SELECTOR == 2, true);
+        slaveDisplay[1].renderText("", false);
+        slaveDisplay[2].renderText("", false);
+      }
+
+
     }
     else
     {
-      temps[0] = getSensorSlaveValue(6);
-      temps[1] = getSensorSlaveValue(7);
-      temps[2] = getSensorSlaveValue(8);
-      slaveDisplay[0].renderTemps(temps);
-      temps[0] = getSensorSlaveValue(9);
-      temps[1] = getSensorSlaveValue(10);
-      temps[2] = getSensorSlaveValue(11);
-      slaveDisplay[1].renderTemps(temps);
-    }    
-    
-    slaveDisplay[2].renderRelayStatus(relayState);
-    
-    /*
-    for(i = (SLAVE_PAGE*6); i < ((SLAVE_PAGE+1)*6);){
-      
-      if(i<3 || (i>=6 && i<9)){
-        switchI2CMuxPort(0); // SLAVE diplay 1 (idx 0)
-      }else if((i>=3 && i<6) || (i>=9 && i<12)){
-        switchI2CMuxPort(1); // SLAVE diplay 1 (idx 0)
-      }
-
-      slaveDisplay.clearDisplay();
-      slaveDisplay.setTextSize(1);
-      slaveDisplay.setTextColor(SSD1306_WHITE);
-      for(j = 0; j < 3; ++j, ++i){
-        if(sensorLastReading[i] != DEVICE_DISCONNECTED_C){
-          slaveDisplay.setCursor(j*42+7,12);
-          slaveDisplay.print(getSensorSlaveValue(i));
-        }else if(sensorLastReading[i] == SENSOR_ERROR){
-          slaveDisplay.setCursor(j*42+12,12);
-          slaveDisplay.print("ERR");
-        }else{
-          slaveDisplay.setCursor(j*42+17,12);
-          slaveDisplay.print("NA");
-        }
-      }
-      slaveDisplay.drawLine(42, 0, 42, SLAVE_SCREEN_HEIGHT - 1, SH110X_WHITE);
-      slaveDisplay.drawLine(84, 0, 84, SLAVE_SCREEN_HEIGHT - 1, SH110X_WHITE);
-      slaveDisplay.display();
-    }
-*/
-
-/*
-    // ------ UDPATE Relays Status Display -------------
-    switchI2CMuxPort(2);
-
-    slaveDisplay.clearDisplay();
-    // Horizontal Lines
-    slaveDisplay.drawLine(0, 0, SLAVE_SCREEN_WIDTH-1, 0, SH110X_WHITE);
-    slaveDisplay.drawLine(0, 16, SLAVE_SCREEN_WIDTH-1, 16, SH110X_WHITE);
-    slaveDisplay.drawLine(0, SLAVE_SCREEN_HEIGHT - 1, SLAVE_SCREEN_WIDTH-1, SLAVE_SCREEN_HEIGHT - 1, SH110X_WHITE);
-    // Vertical Lines
-    slaveDisplay.drawLine(0, 0, 0, SLAVE_SCREEN_HEIGHT - 1, SH110X_WHITE);
-    slaveDisplay.drawLine(32, 0, 32, SLAVE_SCREEN_HEIGHT - 1, SH110X_WHITE);
-    slaveDisplay.drawLine(64, 0, 64, SLAVE_SCREEN_HEIGHT - 1, SH110X_WHITE);
-    slaveDisplay.drawLine(96, 0, 96, SLAVE_SCREEN_HEIGHT - 1, SH110X_WHITE);
-    slaveDisplay.drawLine(SLAVE_SCREEN_WIDTH-1, 0, SLAVE_SCREEN_WIDTH-1, SLAVE_SCREEN_HEIGHT - 1, SH110X_WHITE);
-
-    uint8_t recX = 2;
-    uint8_t recY = 2;
-    for(i=0;i<8;++i){
-      if(i<4){
-        recX = (32*i)+3;
-        recY = 3;
+      if(!CHANNEL_BANK){
+        temps[0] = sensorLastReading[0];
+        temps[1] = getSensorSlaveValue(1);
+        temps[2] = getSensorSlaveValue(2);
+        slaveDisplay[0].renderTemps(temps);
+        temps[0] = getSensorSlaveValue(3);
+        temps[1] = getSensorSlaveValue(4);
+        temps[2] = getSensorSlaveValue(5);
+        slaveDisplay[1].renderTemps(temps);
       }
       else
       {
-        recX = 32*(i-4)+3;
-        recY = 19;
-      }
+        temps[0] = getSensorSlaveValue(6);
+        temps[1] = getSensorSlaveValue(7);
+        temps[2] = getSensorSlaveValue(8);
+        slaveDisplay[0].renderTemps(temps);
+        temps[0] = getSensorSlaveValue(9);
+        temps[1] = getSensorSlaveValue(10);
+        temps[2] = getSensorSlaveValue(11);
+        slaveDisplay[1].renderTemps(temps);
+      }    
       
-      if(relayState[i]){
-        // x, y, w, h
-        slaveDisplay.writeFillRect(recX,recY,27,11,SH110X_WHITE);
-        slaveDisplay.setTextColor(SH110X_BLACK);
-        slaveDisplay.setCursor(recX+12,recY+2);
-        slaveDisplay.print(i+1);
-      }else{
-        slaveDisplay.writeFillRect(recX,recY,27,11,SH110X_BLACK);
-        slaveDisplay.setTextColor(SH110X_WHITE);
-        slaveDisplay.setCursor(recX+12,recY+2);
-        slaveDisplay.print(i+1);
-      }
+      slaveDisplay[2].renderRelayStatus(relayState);
     }
-    slaveDisplay.display();
-    */
     vTaskDelay(400);  // one tick delay (15ms) in between reads for stability   
   }
 }
@@ -529,31 +463,29 @@ void TaskUpdateRelays(void *pvParameters)
   for (;;)
   {
     for(i = 0; i < 8; ++i){
-      if(sensorLastReading[i] != -127){
-        /*
-        if(!relayState[i]){ //Relay is OFF
-          if(sensorLastReading[i] >= 17.5 ||){
+      if(relayMapping[i] < 8)
+      {
+        ChannelConfig *chConfig = &channelsConfig[relayMapping[i]];
+        
+        if(sensorLastReading[relayMapping[i]] > -127)
+        {
+          if(sensorLastReading[relayMapping[i]] >= ((*chConfig).target + (*chConfig).tolerance)) // If reached High Threshold
+          {  
             relayState[i] = true;
             digitalWrite(RelayPins[i], false); 
           }
-        }else{ // Relay is ON (Cooling)
-          if(sensorLastReading[i] <= 16.5){
+          else if(sensorLastReading[relayMapping[i]] <= ((*chConfig).target - (*chConfig).tolerance))
+          {
             relayState[i] = false;
             digitalWrite(RelayPins[i], true); 
           }
-        }*/
-         
-        if(sensorLastReading[i] >= 17.5){  // If reached High Threshold
-        // || (!relayState[i] && sensorLastReading[i] > 16.5 && sensorLastReading[i] < 17.5)){ //or we are in target window and not cooling
-          relayState[i] = true;
-          digitalWrite(RelayPins[i], false); 
-        }
-        else if(sensorLastReading[i] <= 16.5){
-          relayState[i] = false;
-          digitalWrite(RelayPins[i], true); 
         }
       }
-      
+      else
+      {
+        relayState[i] = false;
+        digitalWrite(RelayPins[i], true); 
+      }
     }
     vTaskDelay(950);  // one tick delay (15ms) in between reads for stability   
   }
@@ -574,26 +506,192 @@ void IRAM_ATTR ISR_RotaryEncoder(void)
     encval += enc_states[( old_AB & 0x0f )];
   
     // Update counter if encoder has rotated a full indent, that is at least 4 steps
+
+    // ------- INCREASE --------
     if( encval > 3) {        // Four steps forward
-      if(CURRENT_PAGE < MENU_PAGE_MAX){
-        CURRENT_PAGE++;  
+      if(!mainDisplay.IN_OPTIONS_MENU){
+        if(CURRENT_PAGE < MENU_PAGE_MAX){
+          CURRENT_PAGE++;  
+        }
       }
+      else
+      { 
+        switch (mainDisplay.IN_OPTIONS_PAGE)
+        {
+          case 1:
+            if(!mainDisplay.IN_OPTIONS_SELECTOR_LOCKED)
+            {
+              if(mainDisplay.IN_OPTIONS_SELECTOR == OPTIONSCONFIG_SELECTOR_MAX)
+              {
+                mainDisplay.IN_OPTIONS_SELECTOR = 0;
+              }
+              else
+              {
+                mainDisplay.IN_OPTIONS_SELECTOR++;
+              }
+            }
+            else
+            {
+              _optionValueChange++;
+            }
+            break;
+          case 2:
+            if(!mainDisplay.IN_OPTIONS_SELECTOR_LOCKED)
+            {
+              if(mainDisplay.IN_OPTIONS_SELECTOR == OPTIONSCONFIG_RELAY_SELECTOR_MAX)
+              {
+                mainDisplay.IN_OPTIONS_SELECTOR = 0;
+              }
+              else
+              {
+                mainDisplay.IN_OPTIONS_SELECTOR++;
+              }
+            }
+            else
+            {
+              _optionValueChange++;
+            }
+            
+            break;
+          default:
+            if(mainDisplay.IN_OPTIONS_SELECTOR < OPTIONS_SELECTOR_MAX)
+            {
+              mainDisplay.IN_OPTIONS_SELECTOR++;
+            }
+            break;
+        }
+      }
+      
       encval = 0;
     }
-    else if( encval < -3 ) {  // Four steps backwards
-     if(CURRENT_PAGE!=0){
-      CURRENT_PAGE--;// Decrease counter
-     }
+    // ------- DECREASE --------
+    else if( encval < -3 ) 
+    {  // Four steps backwards
+      if(!mainDisplay.IN_OPTIONS_MENU){
+        if(CURRENT_PAGE!=0){
+          CURRENT_PAGE--;// Decrease counter
+        } 
+      }
+      else
+      {
+        switch (mainDisplay.IN_OPTIONS_PAGE)
+        {
+          case 1:
+            if(!mainDisplay.IN_OPTIONS_SELECTOR_LOCKED)
+            {
+              if(mainDisplay.IN_OPTIONS_SELECTOR == 0)
+              {
+                mainDisplay.IN_OPTIONS_SELECTOR = OPTIONSCONFIG_SELECTOR_MAX;
+              }
+              else
+              {
+                mainDisplay.IN_OPTIONS_SELECTOR--;
+              }
+            }
+            else
+            {
+              _optionValueChange--;
+            }
+            break;
+          case 2:
+            if(!mainDisplay.IN_OPTIONS_SELECTOR_LOCKED)
+            {
+              if(mainDisplay.IN_OPTIONS_SELECTOR == 0)
+              {
+                mainDisplay.IN_OPTIONS_SELECTOR = OPTIONSCONFIG_RELAY_SELECTOR_MAX;
+              }
+              else
+              {
+                mainDisplay.IN_OPTIONS_SELECTOR--;
+              }
+            }
+            else
+            {
+              _optionValueChange--;
+            }
+            
+            break;
+          default:
+            if(mainDisplay.IN_OPTIONS_SELECTOR > 0)
+            {
+              mainDisplay.IN_OPTIONS_SELECTOR--;
+            }
+            break;
+        }
+      }
      encval = 0;
     }
 }
 
+// All of this code could probably be in the MainDisplayHandler class, but leaving it here for now
 void IRAM_ATTR ISR_RotaryBTN(void)
 {
+  // NEED DEBOUNCER Check of like 30ms minimum
     noInterrupts();
-    ButtonPressed = true;
-    if(SLAVE_PAGE == 0){ SLAVE_PAGE = 1; }
-    else{ SLAVE_PAGE = 0; }
+    if(xTaskGetTickCountFromISR() - lastBTNPressTickCount > 30){
+      if(!mainDisplay.IN_OPTIONS_MENU)
+      {
+        mainDisplay.IN_OPTIONS_MENU = true;
+      }
+      else
+      {
+        switch (mainDisplay.IN_OPTIONS_PAGE)
+        {
+          case 0:
+            {
+              switch (mainDisplay.IN_OPTIONS_SELECTOR)
+              {
+                case 0: // Channel Config
+                  mainDisplay.IN_OPTIONS_PAGE = 1; 
+                  mainDisplay.IN_OPTIONS_SELECTOR = 0;
+                  break;
+                case 1: // Output Relay Mapping 
+                  mainDisplay.IN_OPTIONS_PAGE = 2;
+                  mainDisplay.IN_OPTIONS_SELECTOR = 0;
+                  break;
+                case 2: // Switch Bank 
+                  mainDisplay.IN_OPTIONS_PAGE = 0;
+                  CHANNEL_BANK = !CHANNEL_BANK;
+                  mainDisplay.IN_OPTIONS_MENU = false;
+                  break;
+                case 3: // EXIT
+                  mainDisplay.IN_OPTIONS_PAGE = 0;
+                  mainDisplay.IN_OPTIONS_SELECTOR = 0;
+                  mainDisplay.IN_OPTIONS_MENU = false;
+                  break;
+              }
+            }
+            break;
+          case 1:
+            mainDisplay.IN_OPTIONS_PAGE = 0;
+            mainDisplay.IN_OPTIONS_SELECTOR = 0;
+            mainDisplay.IN_OPTIONS_MENU = false;
+            break;
+          case 2:
+            {
+              if(mainDisplay.IN_OPTIONS_SELECTOR_LOCKED)
+              {
+                mainDisplay.IN_OPTIONS_SELECTOR_LOCKED = false;
+              }
+              else
+              {
+                if(mainDisplay.IN_OPTIONS_SELECTOR == 12 || mainDisplay.IN_OPTIONS_SELECTOR == 13)
+                {
+                  mainDisplay.IN_OPTIONS_PAGE = 0;
+                  mainDisplay.IN_OPTIONS_SELECTOR = 0;
+                  mainDisplay.IN_OPTIONS_MENU = false;
+                }
+                else
+                {
+                  mainDisplay.IN_OPTIONS_SELECTOR_LOCKED = true;
+                }
+              }
+            }
+            break;
+        }
+      }
+    }
+    lastBTNPressTickCount = xTaskGetTickCountFromISR();
     interrupts();
 }
 
@@ -632,4 +730,27 @@ void printAddress(DeviceAddress deviceAddress)
     if (deviceAddress[i] < 16) Serial.print("0");
     Serial.print(deviceAddress[i], HEX);
   }
+}
+
+String convertAddress(DeviceAddress deviceAddress)
+{
+  //   {0x28,0xA0,0xF4,0x79,0xA2,0x00,0x03,0x9B}, //(1) 28A0 F479 A200 039B 
+  String val = "";
+  for (uint8_t i = 0; i < 8; i++)
+  {
+    if(deviceAddress[i] < 10)
+    {
+      val += "0" + String(deviceAddress[i],HEX);
+    }
+    else
+    {
+      String temp = String(deviceAddress[i],HEX);
+      temp.toUpperCase();
+      val += temp;
+    }
+    if(i%2 && i>0){
+      val += " ";
+    }
+  }
+  return val;
 }

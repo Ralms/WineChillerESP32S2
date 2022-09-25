@@ -35,11 +35,6 @@ void MainDisplayHandler::init(TwoWire *twi){
 
 void MainDisplayHandler::reset(){
     slaveActivePage = 0;
-    avg = 0;
-    var = 0;
-    min = 0;
-    max = 0;
-    r_sigma = -1;
 }
 
 void MainDisplayHandler::setSlavesPage(int slavePageIndex){
@@ -102,4 +97,163 @@ void MainDisplayHandler::renderPage(int pageIndex){
     //maindisplay.print(CURRENT_PAGE);
     
     _maindisplay.display();
+}
+
+void MainDisplayHandler::renderOptionsMenu(){
+  _maindisplay.clearDisplay();
+  _maindisplay.setTextSize(1);
+
+  // Set Option Page title
+  _maindisplay.setRotation(3);
+  _maindisplay.drawLine(0, MAIN_SCREEN_WIDTH-12, MAIN_SCREEN_HEIGHT-1, MAIN_SCREEN_WIDTH-12, SH110X_WHITE);
+  _maindisplay.setCursor(0, MAIN_SCREEN_WIDTH-9);
+  switch (IN_OPTIONS_PAGE)
+  {
+    case 0:
+      _maindisplay.print("OPTIONS");
+      _maindisplay.setRotation(0);
+      MainDisplayHandler::renderOptions();
+      break;
+    case 1:
+      _maindisplay.print("CH. CONFIG");
+      _maindisplay.setRotation(0);
+      MainDisplayHandler::renderOptionsChannelConfig();
+      break;
+    case 2:
+      _maindisplay.print("OUTPUT MAP");
+      _maindisplay.setRotation(0);
+      MainDisplayHandler::renderOptionsOutputMapping();
+      break;
+  }
+
+  _maindisplay.display();
+}
+
+void MainDisplayHandler::renderOptions(){
+  _maindisplay.setCursor(5,4);
+  _maindisplay.print("Channel Config");
+  _maindisplay.setCursor(5,20);
+  _maindisplay.print("Output Mapping");
+  _maindisplay.setCursor(5,34);
+  _maindisplay.print("Switch Bank");
+  _maindisplay.setCursor(5,50);
+  _maindisplay.print("<-- Exit");
+
+  //---- Highlighted option:------
+  u_int16_t selectorBoxY = IN_OPTIONS_SELECTOR * OPTION0_SELECTOR_BOX_HEIGHT;
+  //vertical lines
+  _maindisplay.drawLine(0, selectorBoxY, 0, selectorBoxY+OPTION0_SELECTOR_BOX_HEIGHT, SH110X_WHITE);
+  _maindisplay.drawLine(OPTION0_SELECTOR_BOX_WIDTH, selectorBoxY, OPTION0_SELECTOR_BOX_WIDTH, selectorBoxY+OPTION0_SELECTOR_BOX_HEIGHT, SH110X_WHITE);
+  //horizontal lines
+  _maindisplay.drawLine(0, selectorBoxY, OPTION0_SELECTOR_BOX_WIDTH, selectorBoxY, SH110X_WHITE);
+  _maindisplay.drawLine(0, selectorBoxY+OPTION0_SELECTOR_BOX_HEIGHT, OPTION0_SELECTOR_BOX_WIDTH, selectorBoxY+OPTION0_SELECTOR_BOX_HEIGHT, SH110X_WHITE);
+
+  // _maindisplay.display(); called at renderOptionsMenu()
+}
+
+void MainDisplayHandler::renderOptionsChannelConfig(){
+
+  _maindisplay.setCursor(30,10);
+  _maindisplay.print("Channel ");;
+  _maindisplay.print(IN_OPTIONS_SELECTOR);
+
+  _maindisplay.setCursor(5,35);
+  _maindisplay.print("Curr. Read: ");
+  _maindisplay.print(22.7);
+
+  // --- Bottom Menu ---
+  _maindisplay.drawLine(0, 50, MAIN_SCREEN_WIDTH-12, 50, SH110X_WHITE);
+  _maindisplay.drawLine(60, 50, 60, MAIN_SCREEN_HEIGHT-1, SH110X_WHITE);
+  _maindisplay.setCursor(20,MAIN_SCREEN_HEIGHT-9);
+  _maindisplay.print("Save");
+  _maindisplay.setCursor(80,MAIN_SCREEN_HEIGHT-9);
+  _maindisplay.print("Back");
+
+  /* // Spent time doing the grid, to then realize it doesn't make sense to have it. 
+  for(int i = 0; i < 4; ++i){
+    _maindisplay.setCursor((i*24)+18,8);
+    _maindisplay.print(i+1);  
+  }
+  for(int i = 0; i < 4; ++i){
+    _maindisplay.setCursor((i*24)+18,26);
+    _maindisplay.print(i+5);  
+  }
+  _maindisplay.setCursor(18,45);
+  _maindisplay.print(9); // seperating 9, in order to center 10, 11 and 12
+  for(int i = 1; i < 4; ++i){
+    _maindisplay.setCursor((i*24)+15,45);
+    _maindisplay.print(i+9);  
+  }
+
+  u_int16_t selectorBoxX = (IN_OPTIONS_SELECTOR * OPTION1_SELECTOR_BOX_WIDTH) + 10;
+  u_int16_t selectorBoxY = (IN_OPTIONS_SELECTOR * OPTION1_SELECTOR_BOX_HEIGHT) + 2;
+  //vertical lines
+  _maindisplay.drawLine(selectorBoxX, selectorBoxY, selectorBoxX, selectorBoxY + OPTION1_SELECTOR_BOX_HEIGHT, SH110X_WHITE);
+  _maindisplay.drawLine(selectorBoxX + OPTION1_SELECTOR_BOX_WIDTH, selectorBoxY, selectorBoxX + OPTION1_SELECTOR_BOX_WIDTH, selectorBoxY + OPTION1_SELECTOR_BOX_HEIGHT, SH110X_WHITE);
+
+  //horizontal lines
+  _maindisplay.drawLine(selectorBoxX, selectorBoxY, selectorBoxX +OPTION1_SELECTOR_BOX_WIDTH, selectorBoxY, SH110X_WHITE);
+  _maindisplay.drawLine(selectorBoxX, selectorBoxY+OPTION1_SELECTOR_BOX_HEIGHT, selectorBoxX+OPTION1_SELECTOR_BOX_WIDTH, selectorBoxY+OPTION1_SELECTOR_BOX_HEIGHT, SH110X_WHITE);
+  */
+
+
+  // _maindisplay.display(); called at renderOptionsMenu()
+}
+
+void MainDisplayHandler::renderOptionsOutputMapping(){
+
+  for(int i = 0; i < 4; ++i){
+    _maindisplay.setCursor((i*24)+18,4);
+    _maindisplay.print(i+1);  
+  }
+  for(int i = 0; i < 4; ++i){
+    _maindisplay.setCursor((i*24)+18,19);
+    _maindisplay.print(i+5);  
+  }
+  _maindisplay.setCursor(18,35);
+  _maindisplay.print(9); // seperating 9, in order to center 10, 11 and 12
+  for(int i = 1; i < 4; ++i){
+    _maindisplay.setCursor((i*24)+15,35);
+    _maindisplay.print(i+9);  
+  }
+
+
+  // ------- SELECTOR BOX -----------
+
+  u_int16_t selectorBoxX = 0;
+  u_int16_t selectorBoxY = 0;
+
+  if(IN_OPTIONS_SELECTOR >= 0 && IN_OPTIONS_SELECTOR < 4)
+  {
+    selectorBoxX = (IN_OPTIONS_SELECTOR * OPTION1_SELECTOR_BOX_WIDTH) + 10;
+    selectorBoxY = 0;
+  }
+  else if(IN_OPTIONS_SELECTOR >= 4 && IN_OPTIONS_SELECTOR < 8)
+  {
+    selectorBoxX = ((IN_OPTIONS_SELECTOR-4) * OPTION1_SELECTOR_BOX_WIDTH) + 10;
+    selectorBoxY = OPTION1_SELECTOR_BOX_HEIGHT;
+  }
+  else if(IN_OPTIONS_SELECTOR >= 8 && IN_OPTIONS_SELECTOR < 12)
+  {
+    selectorBoxX = ((IN_OPTIONS_SELECTOR-8) * OPTION1_SELECTOR_BOX_WIDTH) + 10;
+    selectorBoxY = OPTION1_SELECTOR_BOX_HEIGHT *2;
+  }
+  
+  //vertical lines
+  _maindisplay.drawLine(selectorBoxX, selectorBoxY, selectorBoxX, selectorBoxY + OPTION1_SELECTOR_BOX_HEIGHT, SH110X_WHITE);
+  _maindisplay.drawLine(selectorBoxX + OPTION1_SELECTOR_BOX_WIDTH, selectorBoxY, selectorBoxX + OPTION1_SELECTOR_BOX_WIDTH, selectorBoxY + OPTION1_SELECTOR_BOX_HEIGHT, SH110X_WHITE);
+
+  //horizontal lines
+  _maindisplay.drawLine(selectorBoxX, selectorBoxY, selectorBoxX +OPTION1_SELECTOR_BOX_WIDTH, selectorBoxY, SH110X_WHITE);
+  _maindisplay.drawLine(selectorBoxX, selectorBoxY+OPTION1_SELECTOR_BOX_HEIGHT, selectorBoxX+OPTION1_SELECTOR_BOX_WIDTH, selectorBoxY+OPTION1_SELECTOR_BOX_HEIGHT, SH110X_WHITE);
+  
+  // --- Bottom Menu ---
+  _maindisplay.drawLine(0, 50, MAIN_SCREEN_WIDTH-12, 50, SH110X_WHITE);
+  _maindisplay.drawLine(60, 50, 60, MAIN_SCREEN_HEIGHT-1, SH110X_WHITE);
+  _maindisplay.setCursor(20,MAIN_SCREEN_HEIGHT-9);
+  _maindisplay.print("Save");
+  _maindisplay.setCursor(80,MAIN_SCREEN_HEIGHT-9);
+  _maindisplay.print("Back");
+
+  // _maindisplay.display(); called at renderOptionsMenu()
 }

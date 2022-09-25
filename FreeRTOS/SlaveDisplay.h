@@ -32,6 +32,8 @@ class SlaveDisplay {
     void init(int idx, TwoWire *twi = &Wire);
     void reset();
     void renderTemps(float temps[3]);
+    void renderText(String txt, bool selected, bool textSizeLarge = false);
+    void renderOption(String txt, float val, bool selected, bool textSizeLarge = false);
     void renderRelayStatus(bool relayState[8]);
     void setSlavesPage(int); 
   private:

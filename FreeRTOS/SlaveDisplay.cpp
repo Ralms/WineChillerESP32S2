@@ -99,6 +99,72 @@ void SlaveDisplay::renderRelayStatus(bool relayState[8]){
     _display.display();
 }
 
+void SlaveDisplay::renderText(String txt, bool selected, bool textSizeLarge){
+    SlaveDisplay::switchI2CMuxPort(_idx);
+    _display.clearDisplay();
+    _display.setTextColor(WHITE);
+
+    if(textSizeLarge)
+    {
+      _display.setTextSize(2);
+      _display.setCursor(0,0);
+      _display.print(txt);
+    }
+    else
+    {
+      _display.setTextSize(1);
+      _display.setCursor(0,15);
+      _display.print(txt);
+    }
+    
+    
+    if(selected)
+    {
+      // Horizontal
+      _display.drawLine(0, 0, SLAVE_SCREEN_WIDTH-1, 0, WHITE);
+      _display.drawLine(0, SLAVE_SCREEN_HEIGHT-1, SLAVE_SCREEN_WIDTH-1, SLAVE_SCREEN_HEIGHT-1, WHITE);
+      // Vertical
+      _display.drawLine(0, 0, 0, SLAVE_SCREEN_HEIGHT-1, WHITE);
+      _display.drawLine(SLAVE_SCREEN_WIDTH-1, 0, SLAVE_SCREEN_WIDTH-1, SLAVE_SCREEN_HEIGHT-1, WHITE);
+    }
+
+    _display.display();
+}
+
+void SlaveDisplay::renderOption(String txt, float val, bool selected, bool textSizeLarge){
+    SlaveDisplay::switchI2CMuxPort(_idx);
+    _display.clearDisplay();
+    _display.setTextColor(WHITE);
+    if(textSizeLarge)
+    {
+      _display.setTextSize(2);
+      _display.setCursor(0,0);
+      _display.print(txt);
+      _display.setCursor(74,15);
+      _display.print(val,1);
+    }
+    else
+    {
+      _display.setTextSize(1);
+      _display.setCursor(5,15);
+      _display.print(txt);
+      _display.setCursor(74,15);
+      _display.print(val,1);
+    }
+
+    if(selected)
+    {
+      // Horizontal
+      _display.drawLine(68, 10, 100, 10, WHITE);
+      _display.drawLine(68, 30, 100, 30, WHITE);
+      // Vertical
+      _display.drawLine(68, 10, 68, 30, WHITE);
+      _display.drawLine(100, 10, 100, 30, WHITE);
+    }
+
+    _display.display();
+}
+
 /*
 void SlaveDisplay::renderPage(int pageIndex){
     switchI2CMuxPort(idx);
